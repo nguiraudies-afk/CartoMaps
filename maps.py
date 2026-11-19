@@ -206,4 +206,51 @@ if fichier_upload is not None:
                 lons.append(lon)
                 if (idx + 1) % 10 == 0 or (idx + 1) == total:
                     barre.progress((idx + 1) / max(total, 1))
-                    statut.text(
+                    statut.text(f"Géocodage en cours... {idx + 1}/{total}")
+                time.sleep(0.05)
+
+            df_export["lat"] = lats
+            df_export["lon"] = lons
+            barre.empty()
+            statut.empty()
+
+            df_carte = df_export.dropna(subset=["lat", "lon"])
+            st.success(f"🗺️ {len(df_carte)}/{len(df_export)} adresses géocodées avec succès.")
+            if not df_carte.empty:
+                st.map(df_carte[["lat", "lon"]])
+
+        colonnes_mymaps = [
+            c
+            for c in [
+                "Raison sociale",
+                "Dénomination",
+                "Adresse_Complete",
+                "Tranche Effectif",
+                "Catégorie",
+                "SIREN",
+                "Chiffre d'Affaires (€)",
+                "lat",
+                "lon",
+            ]
+            if c in df_export.columns
+        ]
+        df_mymaps = df_export[colonnes_mymaps]
+
+        csv_bytes = df_mymaps.to_csv(index=False).encode("utf-8-sig")
+        kml_bytes = generer_kml(df_export)
+
+        dl1, dl2 = st.columns(2)
+        with dl1:
+            st.download_button(
+                label=f"📥 Télécharger {nom_export}.csv (Import My Maps)",
+                data=csv_bytes,
+                file_name=f"{nom_export}.csv",
+                mime="text/csv",
+            )
+        with dl2:
+            st.download_button(
+                label=f"📥 Télécharger {nom_export}.kml (Calque Google Earth / My Maps)",
+                data=kml_bytes,
+                file_name=f"{nom_export}.kml",
+                mime="application/vnd.google-earth.kml+xml",
+            )
