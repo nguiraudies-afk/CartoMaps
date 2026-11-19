@@ -173,3 +173,7 @@ if fichier_upload is not None:
             df_filtre = df_filtre[masque]
 
     st.info(f"🎯 **{len(df_filtre)}** entreprise(s) sélectionnée(s) pour l'export.")
+    try:
+        st.dataframe(df_filtre.astype(str), use_container_width=True)
+    except Exception as e:
+        st
