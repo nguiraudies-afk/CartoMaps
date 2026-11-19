@@ -1,3 +1,4 @@
+import re
 import time
 import xml.etree.ElementTree as ET
 import pandas as pd
@@ -46,6 +47,20 @@ def obtenir_nom_entreprise(row) -> str:
       if texte and texte.lower() != "nan":
         return texte
   return "Entreprise"
+
+
+def extraire_effectif_num(val):
+  """Extrait un entier depuis la tranche d'effectif (gère nombres ou chaînes type '10 à 19')."""
+  if pd.isna(val):
+    return None
+  if isinstance(val, (int, float)):
+    return int(val)
+  texte = str(val).replace("\u202f", "").replace(" ", "")
+  # Cherche tous les nombres (ex: '10 à 19' -> prend le plus grand ou le premier)
+  nombres = [int(n) for n in re.findall(r"\d+", texte)]
+  if not nombres:
+    return None
+  return max(nombres)
 
 
 def generer_kml(df_points: pd.DataFrame) -> bytes:
@@ -121,16 +136,32 @@ if fichier_upload is not None:
 
   with col_f1:
     if "Tranche Effectif" in df_filtre.columns:
-      effectifs = sorted(
-          df_filtre["Tranche Effectif"].dropna().astype(str).unique().tolist()
-      )
-      sel_eff = st.multiselect(
-          "Filtrer par tranche d'effectif", options=effectifs, default=[]
-      )
-      if sel_eff:
-        df_filtre = df_filtre[
-            df_filtre["Tranche Effectif"].astype(str).isin(sel_eff)
-        ]
+      eff_nums = df_filtre["Tranche Effectif"].apply(extraire_effectif_num)
+      max_eff = int(eff_nums.max()) if eff_nums.notna().any() else 0
+
+      if max_eff > 0:
+        plage_eff = st.slider(
+            "Effectif (de 0 au max)",
+            min_value=0,
+            max_value=max_eff,
+            value=(0, max_eff),
+            step=1,
+        )
+        inclure_sans_eff = st.checkbox(
+            "Inclure les lignes sans effectif renseigné", value=True
+        )
+
+        masque_eff = eff_nums.between(
+            plage_eff[0], plage_eff[1], inclusive="both"
+        )
+        if inclure_sans_eff:
+          masque_eff = masque_eff | eff_nums.isna()
+        else:
+          masque_eff = masque_eff.fillna(False)
+
+        df_filtre = df_filtre[masque_eff]
+      else:
+        st.caption("Aucune valeur numérique détectée dans 'Tranche Effectif'.")
 
   with col_f2:
     if "Catégorie" in df_filtre.columns:
