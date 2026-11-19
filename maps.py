@@ -19,170 +19,157 @@ st.markdown(
 
 
 def geocoder_adresse(adresse: str):
-  """Récupère (lat, lon) via l'API Adresse officielle (data.gouv.fr)."""
-  if not adresse or not str(adresse).strip():
+    """Récupère (lat, lon) via l'API Adresse officielle (data.gouv.fr)."""
+    if not adresse or not str(adresse).strip():
+        return None, None
+    try:
+        resp = requests.get(
+            "https://api-adresse.data.gouv.fr/search/",
+            params={"q": str(adresse).strip(), "limit": 1},
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            features = resp.json().get("features", [])
+            if features:
+                lon, lat = features[0]["geometry"]["coordinates"]
+                return float(lat), float(lon)
+    except requests.exceptions.RequestException:
+        pass
     return None, None
-  try:
-    resp = requests.get(
-        "https://api-adresse.data.gouv.fr/search/",
-        params={"q": str(adresse).strip(), "limit": 1},
-        timeout=10,
-    )
-    if resp.status_code == 200:
-      features = resp.json().get("features", [])
-      if features:
-        lon, lat = features[0]["geometry"]["coordinates"]
-        return float(lat), float(lon)
-  except requests.exceptions.RequestException:
-    pass
-  return None, None
 
 
 def obtenir_nom_entreprise(row) -> str:
-  """Récupère le nom de l'entreprise en priorisant 'Raison sociale'."""
-  for col in ("Raison sociale", "Dénomination"):
-    val = row.get(col)
-    if pd.notna(val):
-      texte = str(val).strip()
-      if texte and texte.lower() != "nan":
-        return texte
-  return "Entreprise"
+    """Récupère le nom de l'entreprise en priorisant 'Raison sociale'."""
+    for col in ("Raison sociale", "Dénomination"):
+        val = row.get(col)
+        if pd.notna(val):
+            texte = str(val).strip()
+            if texte and texte.lower() != "nan":
+                return texte
+    return "Entreprise"
 
 
 def extraire_effectif_num(val):
-  """Extrait un entier depuis la tranche d'effectif (gère nombres ou chaînes type '10 à 19')."""
-  if pd.isna(val):
-    return None
-  if isinstance(val, (int, float)):
-    return int(val)
-  texte = str(val).replace("\u202f", "").replace(" ", "")
-  nombres = [int(n) for n in re.findall(r"\d+", texte)]
-  if not nombres:
-    return None
-  return max(nombres)
+    """Extrait un entier depuis la tranche d'effectif (gère nombres ou chaînes type '10 à 19')."""
+    if pd.isna(val):
+        return None
+    if isinstance(val, (int, float)):
+        return int(val)
+    texte = str(val).replace("\u202f", "").replace(" ", "")
+    nombres = [int(n) for n in re.findall(r"\d+", texte)]
+    if not nombres:
+        return None
+    return max(nombres)
 
 
 def generer_kml(df_points: pd.DataFrame) -> bytes:
-  """Génère un fichier KML compatible Google My Maps / Google Earth."""
-  kml = ET.Element("kml", xmlns="http://www.opengis.net/kml/2.2")
-  doc = ET.SubElement(kml, "Document")
-  nom_doc = ET.SubElement(doc, "name")
-  nom_doc.text = "Prospection Entreprises"
-
-  for _, row in df_points.iterrows():
-    nom_entreprise = obtenir_nom_entreprise(row)
-
-    placemark = ET.SubElement(doc, "Placemark")
-    titre = ET.SubElement(placemark, "name")
-    titre.text = nom_entreprise
+    """Génère un fichier KML compatible Google My Maps / Google Earth."""
+    kml = ET.Element("kml", xmlns="http://www.opengis.net/kml/2.2")
+    doc = ET.SubElement(kml, "Document")
+    nom_doc = ET.SubElement(doc, "name")
+    nom_doc.text = "Prospection Entreprises"
 
     col_ca = "Chiffre d'Affaires (€)"
-    desc = ET.SubElement(placemark, "description")
-    details = [
-        f"Raison sociale : {nom_entreprise}",
-        f"Adresse : {row.get('Adresse_Complete', '')}",
-        f"Effectif : {row.get('Tranche Effectif', 'Non renseigné')}",
-        f"Catégorie : {row.get('Catégorie', '')}",
-        f"SIREN : {row.get('SIREN', '')}",
-        f"CA (€) : {row.get(col_ca, '')}",
-    ]
-    desc.text = "\n".join([
-        d
-        for d in details
-        if not d.endswith(": ") and not d.lower().endswith(": nan")
-    ])
 
-    lat = row.get("lat")
-    lon = row.get("lon")
-    if pd.notna(lat) and pd.notna(lon):
-      point = ET.SubElement(placemark, "Point")
-      coords = ET.SubElement(point, "coordinates")
-      coords.text = f"{lon},{lat},0"
+    for _, row in df_points.iterrows():
+        nom_entreprise = obtenir_nom_entreprise(row)
 
-  return ET.tostring(kml, encoding="utf-8", xml_declaration=True)
+        placemark = ET.SubElement(doc, "Placemark")
+        titre = ET.SubElement(placemark, "name")
+        titre.text = nom_entreprise
+
+        desc = ET.SubElement(placemark, "description")
+        details = [
+            f"Raison sociale : {nom_entreprise}",
+            f"Adresse : {row.get('Adresse_Complete', '')}",
+            f"Effectif : {row.get('Tranche Effectif', 'Non renseigné')}",
+            f"Catégorie : {row.get('Catégorie', '')}",
+            f"SIREN : {row.get('SIREN', '')}",
+            f"CA (€) : {row.get(col_ca, '')}",
+        ]
+        desc.text = "\n".join(
+            [d for d in details if not d.endswith(": ") and not d.lower().endswith(": nan")]
+        )
+
+        lat = row.get("lat")
+        lon = row.get("lon")
+        if pd.notna(lat) and pd.notna(lon):
+            point = ET.SubElement(placemark, "Point")
+            coords = ET.SubElement(point, "coordinates")
+            coords.text = f"{lon},{lat},0"
+
+    return ET.tostring(kml, encoding="utf-8", xml_declaration=True)
 
 
-fichier_upload = st.file_uploader(
-    "📂 Importer ton fichier Excel (.xlsx)", type=["xlsx"]
-)
+fichier_upload = st.file_uploader("📂 Importer ton fichier Excel (.xlsx)", type=["xlsx"])
 
 if fichier_upload is not None:
-  try:
-    df = pd.read_excel(fichier_upload)
-  except Exception as e:
-    st.error(f"❌ Impossible de lire le fichier Excel : {e}")
-    st.stop()
+    try:
+        df = pd.read_excel(fichier_upload)
+    except Exception as e:
+        st.error(f"❌ Impossible de lire le fichier Excel : {e}")
+        st.stop()
 
-  def construire_adresse(row):
-    adr = str(row.get("Adresse") or "").strip()
-    cp = str(row.get("Code Postal") or "").replace(".0", "").strip()
-    ville = str(row.get("Ville") or "").strip()
-    if cp and cp not in adr:
-      adr = f"{adr} {cp}".strip()
-    if ville and ville.lower() not in adr.lower():
-      adr = f"{adr} {ville}".strip()
-    return adr
+    def construire_adresse(row):
+        adr = str(row.get("Adresse") or "").strip()
+        cp = str(row.get("Code Postal") or "").replace(".0", "").strip()
+        ville = str(row.get("Ville") or "").strip()
+        if cp and cp not in adr:
+            adr = f"{adr} {cp}".strip()
+        if ville and ville.lower() not in adr.lower():
+            adr = f"{adr} {ville}".strip()
+        return adr
 
-  df["Adresse_Complete"] = df.apply(construire_adresse, axis=1)
+    df["Adresse_Complete"] = df.apply(construire_adresse, axis=1)
 
-  st.success(
-      f"✅ {len(df)} lignes chargées depuis **{fichier_upload.name}**."
-  )
+    st.success(f"✅ {len(df)} lignes chargées depuis **{fichier_upload.name}**.")
 
-  # --- FILTRES ---
-  col_f1, col_f2, col_f3 = st.columns(3)
-  df_filtre = df.copy()
+    # --- FILTRES ---
+    col_f1, col_f2, col_f3 = st.columns(3)
+    df_filtre = df.copy()
 
-  with col_f1:
-    if "Tranche Effectif" in df_filtre.columns:
-      eff_nums = df_filtre["Tranche Effectif"].apply(extraire_effectif_num)
-      max_eff = int(eff_nums.max()) if eff_nums.notna().any() else 0
+    with col_f1:
+        if "Tranche Effectif" in df_filtre.columns:
+            eff_nums = df_filtre["Tranche Effectif"].apply(extraire_effectif_num)
+            max_eff = int(eff_nums.max()) if eff_nums.notna().any() else 0
 
-      if max_eff > 0:
-        plage_eff = st.slider(
-            "Effectif (de 0 au max)",
-            min_value=0,
-            max_value=max_eff,
-            value=(0, max_eff),
-            step=1,
+            if max_eff > 0:
+                plage_eff = st.slider(
+                    "Effectif (de 0 au max)",
+                    min_value=0,
+                    max_value=max_eff,
+                    value=(0, max_eff),
+                    step=1,
+                )
+                inclure_sans_eff = st.checkbox(
+                    "Inclure les lignes sans effectif renseigné", value=True
+                )
+
+                masque_eff = eff_nums.between(plage_eff[0], plage_eff[1], inclusive="both")
+                if inclure_sans_eff:
+                    masque_eff = masque_eff | eff_nums.isna()
+                else:
+                    masque_eff = masque_eff.fillna(False)
+
+                df_filtre = df_filtre[masque_eff]
+            else:
+                st.caption("Aucune valeur numérique détectée dans 'Tranche Effectif'.")
+
+    with col_f2:
+        if "Catégorie" in df_filtre.columns:
+            categories = sorted(df_filtre["Catégorie"].dropna().astype(str).unique().tolist())
+            sel_cat = st.multiselect("Filtrer par catégorie", options=categories, default=[])
+            if sel_cat:
+                df_filtre = df_filtre[df_filtre["Catégorie"].astype(str).isin(sel_cat)]
+
+    with col_f3:
+        recherche_mot = st.text_input(
+            "Recherche mot-clé (nom, rue, SIREN...)",
+            placeholder="Ex: ZAC, Rue, PME...",
         )
-        inclure_sans_eff = st.checkbox(
-            "Inclure les lignes sans effectif renseigné", value=True
-        )
+        if recherche_mot.strip():
+            motif = recherche_mot.strip().lower()
+            masque = df_filtre.apply(lambda r: motif in " ".join(r.astype(str)).lower(), axis=1)
+            df_filtre = df_filtre[masque]
 
-        masque_eff = eff_nums.between(
-            plage_eff[0], plage_eff[1], inclusive="both"
-        )
-        if inclure_sans_eff:
-          masque_eff = masque_eff | eff_nums.isna()
-        else:
-          masque_eff = masque_eff.fillna(False)
-
-        df_filtre = df_filtre[masque_eff]
-      else:
-        st.caption("Aucune valeur numérique détectée dans 'Tranche Effectif'.")
-
-  with col_f2:
-    if "Catégorie" in df_filtre.columns:
-      categories = sorted(
-          df_filtre["Catégorie"].dropna().astype(str).unique().tolist()
-      )
-      sel_cat = st.multiselect(
-          "Filtrer par catégorie", options=categories, default=[]
-      )
-      if sel_cat:
-        df_filtre = df_filtre[df_filtre["Catégorie"].astype(str).isin(sel_cat)]
-
-  with col_f3:
-    recherche_mot = st.text_input(
-        "Recherche mot-clé (nom, rue, SIREN...)",
-        placeholder="Ex: ZAC, Rue, PME...",
-    )
-    if recherche_mot.strip():
-      motif = recherche_mot.strip().lower()
-      masque = df_filtre.apply(
-          lambda r: motif in " ".join(r.astype(str)).lower(), axis=1
-      )
-      df_filtre = df_filtre[masque]
-
-  st.info(
+    st.info(f"🎯 **{len(df_filtre)}** entreprise(s) sélectionnée(s) pour l'export.")
