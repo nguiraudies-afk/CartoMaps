@@ -56,7 +56,6 @@ def extraire_effectif_num(val):
   if isinstance(val, (int, float)):
     return int(val)
   texte = str(val).replace("\u202f", "").replace(" ", "")
-  # Cherche tous les nombres (ex: '10 à 19' -> prend le plus grand ou le premier)
   nombres = [int(n) for n in re.findall(r"\d+", texte)]
   if not nombres:
     return None
@@ -77,6 +76,7 @@ def generer_kml(df_points: pd.DataFrame) -> bytes:
     titre = ET.SubElement(placemark, "name")
     titre.text = nom_entreprise
 
+    col_ca = "Chiffre d'Affaires (€)"
     desc = ET.SubElement(placemark, "description")
     details = [
         f"Raison sociale : {nom_entreprise}",
@@ -84,7 +84,7 @@ def generer_kml(df_points: pd.DataFrame) -> bytes:
         f"Effectif : {row.get('Tranche Effectif', 'Non renseigné')}",
         f"Catégorie : {row.get('Catégorie', '')}",
         f"SIREN : {row.get('SIREN', '')}",
-        f"CA (€) : {row.get(\"Chiffre d'Affaires (€)\", '')}",
+        f"CA (€) : {row.get(col_ca, '')}",
     ]
     desc.text = "\n".join([
         d
@@ -113,7 +113,6 @@ if fichier_upload is not None:
     st.error(f"❌ Impossible de lire le fichier Excel : {e}")
     st.stop()
 
-  # Construction d'une adresse complète propre si code postal / ville sont séparés
   def construire_adresse(row):
     adr = str(row.get("Adresse") or "").strip()
     cp = str(row.get("Code Postal") or "").replace(".0", "").strip()
@@ -187,87 +186,3 @@ if fichier_upload is not None:
       df_filtre = df_filtre[masque]
 
   st.info(
-      f"🎯 **{len(df_filtre)}** entreprise(s) sélectionnée(s) pour l'export."
-  )
-  st.dataframe(df_filtre, use_container_width=True)
-
-  # --- GÉOCODAGE & EXPORT MY MAPS ---
-  col_opt1, col_opt2 = st.columns(2)
-  with col_opt1:
-    geocoder = st.checkbox(
-        "📍 Géocoder les adresses (coordonnées GPS pour carte & KML)",
-        value=True,
-    )
-  with col_opt2:
-    nom_export = st.text_input(
-        "Nom du dossier / fichier My Maps (sans extension)",
-        value="Prospection_MyMaps",
-    )
-
-  if st.button("🚀 Préparer les fichiers My Maps"):
-    df_export = df_filtre.copy()
-
-    if geocoder:
-      lats, lons = [], []
-      barre = st.progress(0)
-      statut = st.empty()
-      total = len(df_export)
-
-      for idx, adr in enumerate(df_export["Adresse_Complete"]):
-        lat, lon = geocoder_adresse(adr)
-        lats.append(lat)
-        lons.append(lon)
-        if (idx + 1) % 10 == 0 or (idx + 1) == total:
-          barre.progress((idx + 1) / max(total, 1))
-          statut.text(f"Géocodage en cours... {idx + 1}/{total}")
-        time.sleep(0.05)
-
-      df_export["lat"] = lats
-      df_export["lon"] = lons
-      barre.empty()
-      statut.empty()
-
-      df_carte = df_export.dropna(subset=["lat", "lon"])
-      st.success(
-          f"🗺️ {len(df_carte)}/{len(df_export)} adresses géocodées avec"
-          " succès."
-      )
-      if not df_carte.empty:
-        st.map(df_carte[["lat", "lon"]])
-
-    # Colonnes propres pour Google My Maps
-    colonnes_mymaps = [
-        c
-        for c in [
-            "Raison sociale",
-            "Dénomination",
-            "Adresse_Complete",
-            "Tranche Effectif",
-            "Catégorie",
-            "SIREN",
-            "Chiffre d'Affaires (€)",
-            "lat",
-            "lon",
-        ]
-        if c in df_export.columns
-    ]
-    df_mymaps = df_export[colonnes_mymaps]
-
-    csv_bytes = df_mymaps.to_csv(index=False).encode("utf-8-sig")
-    kml_bytes = generer_kml(df_export)
-
-    dl1, dl2 = st.columns(2)
-    with dl1:
-      st.download_button(
-          label=f"📥 Télécharger {nom_export}.csv (Import My Maps)",
-          data=csv_bytes,
-          file_name=f"{nom_export}.csv",
-          mime="text/csv",
-      )
-    with dl2:
-      st.download_button(
-          label=f"📥 Télécharger {nom_export}.kml (Calque Google Earth / My Maps)",
-          data=kml_bytes,
-          file_name=f"{nom_export}.kml",
-          mime="application/vnd.google-earth.kml+xml",
-      )
