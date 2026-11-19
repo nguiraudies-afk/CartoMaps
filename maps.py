@@ -174,6 +174,36 @@ if fichier_upload is not None:
 
     st.info(f"🎯 **{len(df_filtre)}** entreprise(s) sélectionnée(s) pour l'export.")
     try:
-        st.dataframe(df_filtre.astype(str), use_container_width=True)
+        st.dataframe(df_filtre.astype(str), width="stretch")
     except Exception as e:
-        st
+        st.warning(f"Aperçu simplifié du tableau ({e})")
+        st.write(df_filtre.head(20))
+
+    # --- GÉOCODAGE & EXPORT MY MAPS ---
+    col_opt1, col_opt2 = st.columns(2)
+    with col_opt1:
+        geocoder = st.checkbox(
+            "📍 Géocoder les adresses (coordonnées GPS pour carte & KML)", value=True
+        )
+    with col_opt2:
+        nom_export = st.text_input(
+            "Nom du dossier / fichier My Maps (sans extension)",
+            value="Prospection_MyMaps",
+        )
+
+    if st.button("🚀 Préparer les fichiers My Maps"):
+        df_export = df_filtre.copy()
+
+        if geocoder:
+            lats, lons = [], []
+            barre = st.progress(0)
+            statut = st.empty()
+            total = len(df_export)
+
+            for idx, adr in enumerate(df_export["Adresse_Complete"]):
+                lat, lon = geocoder_adresse(adr)
+                lats.append(lat)
+                lons.append(lon)
+                if (idx + 1) % 10 == 0 or (idx + 1) == total:
+                    barre.progress((idx + 1) / max(total, 1))
+                    statut.text(
